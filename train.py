@@ -1,83 +1,239 @@
-from renext50 import create_resnext50_32x4d
-from data_reader import preprocess
-import numpy as np
 import os
-import torch.nn as nn
-import torch
-from PIL import Image
 import cv2
-from tqdm import tqdm
-from torch.utils.data import Dataset, DataLoader,TensorDataset
-from sklearn.model_selection import train_test_split
-from torch import optim
-import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+# import imageio
+# import imgaug as ia
+# from imgaug import augmenters as iaa
+
+# seq = iaa.Sequential([
+#     iaa.Fliplr(0.5),
+#     iaa.Flipud(0.2),
+#     # iaa.Sometimes(
+#     #     0.5,
+#     #     iaa.GaussianBlur(sigma=(0, 0.5))
+#     # ),
+#     iaa.Affine(rotate=(-100,100)),
+#     iaa.CropAndPad(percent=(-0.2, 0.2), pad_mode="edge"),  # crop and pad images
+#     iaa.AddToHueAndSaturation((-60, 60)),  # change their color
+#     iaa.ElasticTransformation(alpha=90, sigma=9),  # water-like effect
+#     iaa.CoarseDropout((0.01, 0.1), size_percent=0.01)  # set large image areas to zero
+# ], random_order=True)
+mean=[0.485, 0.456, 0.406]
+std=[0.229, 0.224, 0.225]
+
+def read_image(filename, resize_height=None, resize_width=None, normalization=True):
+    # rgb_image = imageio.imread(filename)
+    # print("img_type:{}".format(type(rgb_image)))
+    bgr_image = cv2.imread(filename)
+    if bgr_image is None:
+        print("Warning:???:{}", filename)
+        return None
+    if len(bgr_image.shape) == 2:  # ???????????
+        print("Warning:gray image", filename)
+        bgr_image = cv2.cvtColor(bgr_image, cv2.COLOR_GRAY2BGR)
+
+    return bgr_image
+
+def resize_image(image, resize_height, resize_width):
+
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # ?BGR??RGB
+    image = cv2.resize(image, dsize=(resize_width, resize_height), interpolation=cv2.INTER_LINEAR)
+    return image
+
+def save_image(image_path, rgb_image, toUINT8=True):
+    if toUINT8:
+        rgb_image = np.asanyarray(rgb_image, dtype=np.uint8)
+    if len(rgb_image.shape) == 2:
+        bgr_image = cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2BGR)
+    else:
+        bgr_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(image_path, bgr_image)
+
+import torch
+from torch.autograd import Variable
+from torchvision import transforms
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+from PIL import Image
+import os
+
+class TorchDataset(Dataset):
+    def __init__(self, filename, image_dir, resize_height=256, resize_width=256, repeat=1):
+
+        self.image_label_list = self.read_file(filename)
+        self.image_dir = image_dir
+        self.len = len(self.image_label_list)
+        self.repeat = repeat
+        self.resize_height = resize_height
+        self.resize_width = resize_width
+        # self.cp = transforms.CenterCrop(224)
+        self.jit = transforms.ColorJitter(brightness=1,hue=0.5)
+        self.radomRotation = transforms.RandomRotation(10) #随即旋转
+        self.flip = transforms.RandomHorizontalFlip(p = 0.5) #水平翻转
+        self.ver = transforms.RandomVerticalFlip(p=0.5) #垂直翻转
+
+        self.toTensor = transforms.ToTensor()
+        self.norm = transforms.Normalize(mean=mean, std=std)
+
+    def __getitem__(self, i):
+        index = i % self.len
+        # print("i={},index={}".format(i, index))
+        image_name,label = self.image_label_list[index]
+        # print("image_name,label:{}".format(image_name,label))
+        image_path = os.path.join(self.image_dir, image_name)
+        img = self.load_data(image_path, self.resize_height, self.resize_width, normalization=True)
+        img = self.data_preproccess(img)
+        label = np.array(label)
+        return img, label
+
+    def __len__(self):
+        if self.repeat == None:
+            data_len = 10000000
+        else:
+            data_len = len(self.image_label_list) * self.repeat
+        return data_len
+
+    def read_file(self, filename):
+        image_label_list = []
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                content = line.rstrip().split(',')
+                image = content[0]
+                labels = []
+                for value in content[1:]:
+                    labels.append(int(value))
+                image_label_list.append((image, labels))
+        return image_label_list
+
+    def load_data(self, path, resize_height, resize_width, normalization):
+        image = read_image(path, resize_height, resize_width, normalization)
+        return image
+
+    def data_preproccess(self, data):
+        data = resize_image(data, 256, 256)
+        data = Image.fromarray(data)
+        # data = self.cp(data)
+        data = self.radomRotation(data)
+        # data = self.ver(data)
+        data = self.flip(data)
+        data = self.jit(data)
+        data = self.toTensor(data)
+        # data = self.norm(data)
+        return data
+
+filename = r"C:/Users/WANGYONG/Desktop/internet+/classification_code/data.txt"
+image_dir = r"C:/Users/WANGYONG/Desktop/internet+/data/new_data_lvluo"
+
+# filename = r"F:/plant/plant_data.txt"
+# image_dir = r"F:/Nonsegmented"
+
+from torchvision import datasets, models, transforms
+from similar_to_unet import create_similar_to_unet
+import os
+import torch
 import time
-import random
-from sklearn.utils import shuffle
-from data_reader import reader
+import torch.nn as nn
+import torch.nn.functional as F
+# from data_reader import TorchDataset
 
-model = create_resnext50_32x4d()   #Variable(torch.unsqueeze(tensor, dim=0).float(), requires_grad=False)
-model.eval()
-# image,label = reader()
-# x_train,x_test,y_train,y_test = train_test_split(image,label,test_size=0.3)
-# dataset_train = TensorDataset(torch.from_numpy(np.array(x_train,dtype=np.float32)), torch.from_numpy(np.array(y_train,dtype=np.float32)))
-# dataset_test = TensorDataset(torch.from_numpy(np.array(x_test,dtype=np.float32)),torch.from_numpy(np.array(y_test,dtype=np.float32)))
+dataset = TorchDataset(filename,image_dir)
+dataloders = torch.utils.data.DataLoader(dataset,batch_size=16,shuffle=True)
+Len = dataset.len
+# Len1 = dataset.__len__()
+# pretrained = False
+pretrained = r"F:/new_weight_2.pth"
 lr = 0.001
-optimizer = optim.Adam(model.parameters(),lr=lr)
-lr_sc = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,T_0 = 2, ) #T_mul = 1
 criterion = nn.CrossEntropyLoss()
-batch_size = 16
-epoches = 30
-with open("C:/Users/WANGYONG/Desktop/internet+/classification_code/data.txt",'r') as f:
-    data_li = f.readlines()
-    f.close()
+batch_size = 32
+model = create_similar_to_unet(pretrained)
+model.eval()
+# dataloders = {"train":torch.utils.data.DataLoader(image_datasets['train'],batch_size=2,shuffle=True,num_workers=4)}
+# optimizer = torch.optim.Adam(model.parameters(),lr=lr)
+optimizer = torch.optim.SGD(model.parameters(),lr = lr,momentum=0.9,weight_decay=1e-4)
+lr_sc = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,T_0 = 2) #T_mul = 1
+epoches = 10
 
-data_li = shuffle(data_li)
-# max_batch = len(dataset_train)//batch_size
-epoch_size = len(data_li) // batch_size
-# Iter = iter(dataset_train, batch_size=batch_size, shuffle=True, num_workers=2)
-# Iter = iter(dataset_train)
-model.train()
+#冻结骨干train10个epoch
+for param in model.modules():
+    if not isinstance(param,nn.Linear):
+        # print(param)
+        param.requires_grad = False
 
-for epoch in range(epoches):
-    loss = 0.0
-    acc = 0.0
-    prev_time = time.time()
-    start_time = time.time()
-    with tqdm(total=epoch_size, desc=f'Epoch {epoch + 1}/{(epoches - 0)}', postfix=dict,mininterval=0.3) as pbar:
-        for iteration in range(1,epoch_size+1):
-            # data_list = data_li[iteration-1:16*iteration]
-            Iter = reader(data_li,batch_size)
-            images, labels = next(Iter)
-            # labels = labels.view(-1,1)
-            images = images.to('cpu')
-            labels = labels.to('cpu')
-            optimizer.zero_grad()
-            predict = model(images).to('cpu')
-            tmp_loss = criterion(predict,labels)
-            loss = loss + tmp_loss.item()
-            tmp_loss.backward()
-            optimizer.step()
+for e in range(epoches):
+    running_loss = 0.0
+    running_corrects = 0.0
+    model.train(True)
+    lr_sc.step()
+    print("epoch:{}".format(e+1))
+    # inputs, labels = (dataloders)
+    start = time.time()
+    for data in dataloders:
+        inputs, labels = data
+        if torch.cuda.is_available():
+            labels = labels.squeeze(1)
+            inputs = torch.tensor(inputs.cuda())
+            labels = torch.tensor(labels.cuda())
+        else:
+            labels = labels.squeeze(1)
+            # inputs,labels = Variable(inputs),Variable(labels)
+            inputs, labels = torch.tensor(inputs,dtype=torch.float32), torch.tensor(labels,dtype=torch.int64)
 
-            prediction = torch.max(predict.data, 1)[1]
-            # prediction = torch.argmax(predict)
-            train_correct = (prediction == labels).sum()
-            ##?????train_correct???longtensor???????float
-            # print(train_correct.type())
-            train_acc = (train_correct.float()) / batch_size
-            waste_time = time.time() - start_time
-            pbar.set_postfix(**{'train_loss': loss ,
-                                # "miou": epoch_miou / (iteration + 1),
-                                "acc":train_acc.float(),
-                                'lr': lr,
-                                'step/s': waste_time})
-            pbar.update(1)
-            start_time = time.time()
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        _, preds = torch.max(outputs.data, 1)
+        print("preds:{}".format(preds))
+        # loss = F.cross_entropy(outputs,labels)
+        loss = criterion(outputs, labels)
+        # if phase == 'train':
+        loss.backward()
+        optimizer.step()
 
-        lr_sc.step()
+        running_loss += loss.data.item()
+        running_corrects += torch.sum(preds == labels).item()
+    print("time:{}".format(time.time()-start))
+    print("loss:{},acc:{}".format(running_loss/Len,running_corrects/Len))
 
-        print('Finish Validation')
-        # print('Epoch:' + str(epoch + 1) + '/' + str(Epoch))
-        print('Total Loss: %.4f || Val Loss: %.4f ' % (
-                loss / (epoch_size + 1)))  # , val_loss / (epoch_size_val + 1)
+#解冻骨干 trian 10个epoch
+for param in model.modules():
+    if not isinstance(param,nn.Linear):
+        # print(param)
+        param.requires_grad = True
 
+for e in range(epoches):
+    running_loss = 0.0
+    running_corrects = 0.0
+    model.train(True)
+    lr_sc.step()
+    print("epoch:{}".format(e+1))
+    # inputs, labels = (dataloders)
+    for data in dataloders:
+        inputs, labels = data
+        if torch.cuda.is_available():
+            labels = labels.squeeze(1)
+            inputs = torch.tensor(inputs.cuda())
+            labels = torch.tensor(labels.cuda())
+        else:
+            labels = labels.squeeze(1)
+            # inputs,labels = Variable(inputs),Variable(labels)
+            inputs, labels = torch.tensor(inputs,dtype=torch.float32), torch.tensor(labels,dtype=torch.int64)
+
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        _, preds = torch.max(outputs.data, 1)
+        # print("preds:{}".format(preds))
+        # loss = F.cross_entropy(outputs,labels)
+        loss = criterion(outputs, labels)
+        # if phase == 'train':
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.data.item()
+        running_corrects += torch.sum(preds == labels).item()
+
+    print("loss:{},acc:{}".format(running_loss/Len,running_corrects/Len))
+
+
+print("save the model ................")
+torch.save(model.state_dict(),"F://new_weight_2.pth")

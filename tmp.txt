@@ -1,0 +1,10 @@
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/damage_by_water\s_2_10.jpg,2
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/damage_by_water\s_2_102.jpg,2
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/health\s_1_12.jpg,1
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/health\s_1_120.jpg,1
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/hydropenia\s_4_11.jpg,4
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/hydropenia\s_4_110.jpg,4
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/lack_of_light\s_3_110.jpg,3
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/lack_of_light\s_3_111.jpg,3
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/sunburn\s_5_122.jpg,5
+C:/Users/WANGYONG/Desktop/internet+/data/lvluo_baidu/train/sunburn\s_5_123.jpg,5
